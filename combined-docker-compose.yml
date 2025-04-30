@@ -10,6 +10,8 @@ services:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
     ports:
       - "5001:5001"
+    volumes:
+      - ./api/gcp-credentials.json:/app/gcp-credentials.json:ro
     networks:
       - sentiment-network
 
@@ -19,6 +21,9 @@ services:
     container_name: twitter-sentiment-ui
     ports:
       - "80:80"
+    volumes:
+      - ./client/uploads:/app/uploads
+      - ./client/results:/app/results
     environment:
       - API_BASE_URL=http://twitter-api:5001
     depends_on:

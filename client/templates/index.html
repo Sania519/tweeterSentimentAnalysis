@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitter Sentiment Analysis</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.2.3/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .card {
+            margin-bottom: 1.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .card-header {
+            background-color: #1da1f2;
+            font-weight: bold;
+            color: white;
+            padding: 0.8rem 1rem;
+        }
+        .alert {
+            margin-bottom: 1rem;
+            border-radius: 8px;
+        }
+        .model-id-display {
+            padding: 0.5rem;
+            background-color: #e9ecef;
+            border-radius: 0.25rem;
+            margin-bottom: 1rem;
+            font-family: monospace;
+        }
+        .btn-twitter {
+            background-color: #1da1f2;
+            color: white;
+        }
+        .btn-twitter:hover {
+            background-color: #0d8ecf;
+            color: white;
+        }
+        .sentiment-positive {
+            color: #28a745;
+        }
+        .sentiment-negative {
+            color: #dc3545;
+        }
+        .sentiment-neutral {
+            color: #ffc107;
+        }
+        .sentiment-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-weight: bold;
+        }
+        .sentiment-badge-positive {
+            background-color: #d4edd4;
+            color: #28a745;
+        }
+        .sentiment-badge-negative {
+            background-color: #f8d7da;
+            color: #dc3545;
+        }
+        .sentiment-badge-neutral {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        #realtime-analyzer {
+            transition: all 0.3s ease-in-out;
+        }
+        .app-title {
+            color: #1da1f2;
+            font-weight: 600;
+        }
+        .twitter-logo {
+            color: #1da1f2;
+            margin-right: 0.5rem;
+        }
+        .nav-tabs .nav-link {
+            color: #495057;
+        }
+        .nav-tabs .nav-link.active {
+            border-color: #1da1f2;
+            border-bottom-color: transparent;
+            color: #1da1f2;
+            font-weight: 600;
+        }
+        .loading-spinner {
+            display: none;
+        }
+        .loading .loading-spinner {
+            display: inline-block;
+        }
+        #upload-result {
+            display: none;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="text-center mb-4">
+            <h1 class="app-title"><i class="fab fa-twitter twitter-logo"></i>Twitter Sentiment Analysis</h1>
+            <p class="text-muted">Analyze the sentiment of tweets and gain insights into public opinion</p>
+        </div>
+        
+        <!-- Flash messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'success' if category == 'success' else 'danger' if category == 'error' else 'warning' }}" role="alert">
+                        {{ message|safe }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <!-- Current Model ID Display -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-robot me-2"></i>Current Model
+            </div>
+            <div class="card-body">
+                {% if model_id %}
+                    <div class="model-id-display">{{ model_id }}</div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i> Using custom sentiment analysis model. Predictions may be more accurate for specific types of tweets.
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i> No custom model set. Using built-in TextBlob analysis for sentiment prediction.
+                    </div>
+                {% endif %}
+                
+                <!-- Manually set model ID -->
+                <form action="{{ url_for('set_model_id') }}" method="post" class="mt-3">
+                    <div class="input-group">
+                        <input type="text" name="model_id" class="form-control" placeholder="Enter model ID manually">
+                        <button type="submit" class="btn btn-outline-secondary">Set ID</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Main Content Tabs -->
+        <ul class="nav nav-tabs mb-4" id="analysisTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if active_tab == 'single_tweet' %}active{% endif %}" id="single-tweet-tab" data-bs-toggle="tab" data-bs-target="#single-tweet" type="button" role="tab" aria-controls="single-tweet" aria-selected="{{ 'true' if active_tab == 'single_tweet' else 'false' }}">
+                    <i class="fas fa-comment me-2"></i>Single Tweet
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if active_tab == 'batch_analysis' %}active{% endif %}" id="batch-analysis-tab" data-bs-toggle="tab" data-bs-target="#batch-analysis" type="button" role="tab" aria-controls="batch-analysis" aria-selected="{{ 'true' if active_tab == 'batch_analysis' else 'false' }}">
+                    <i class="fas fa-comments me-2"></i>Batch Analysis
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if active_tab == 'model_management' %}active{% endif %}" id="model-management-tab" data-bs-toggle="tab" data-bs-target="#model-management" type="button" role="tab" aria-controls="model-management" aria-selected="{{ 'true' if active_tab == 'model_management' else 'false' }}">
+                    <i class="fas fa-cogs me-2"></i>Model Management
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if active_tab == 'real_time_analysis' %}active{% endif %}" id="realtime-tab" data-bs-toggle="tab" data-bs-target="#realtime" type="button" role="tab" aria-controls="realtime" aria-selected="{{ 'true' if active_tab == 'real_time_analysis' else 'false' }}">
+                    <i class="fas fa-bolt me-2"></i>Real-time Analysis
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="analysisTabContent">
+            <!-- Single Tweet Analysis -->
+            <div class="tab-pane fade {{ 'show active' if active_tab == 'single_tweet' else '' }}" id="single-tweet" role="tabpanel" aria-labelledby="single-tweet-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-comment me-2"></i>Analyze a Single Tweet
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ url_for('analyze_tweet') }}" method="post">
+                            <div class="mb-3">
+                                <label for="tweet_text" class="form-label">Tweet Text</label>
+                                <textarea class="form-control" id="tweet_text" name="tweet_text" rows="4" placeholder="Enter or paste a tweet here"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-twitter">
+                                <i class="fas fa-search me-2"></i>Analyze Sentiment
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Batch Analysis -->
+            <div class="tab-pane fade {{ 'show active' if active_tab == 'batch_analysis' else '' }}" id="batch-analysis" role="tabpanel" aria-labelledby="batch-analysis-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-comments me-2"></i>Batch Analysis
+                    </div>
+                    <div class="card-body">
+                        <p>Upload a file containing multiple tweets to analyze in bulk. The file can be:</p>
+                        <ul>
+                            <li>CSV file with tweets in the first column</li>
+                            <li>Text file with one tweet per line</li>
+                        </ul>
+                        <form action="{{ url_for('analyze_batch') }}" method="post" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="tweet_file" class="form-label">Upload File</label>
+                                <input type="file" class="form-control" id="tweet_file" name="tweet_file" accept=".csv,.txt">
+                                <div class="form-text text-muted">Maximum 100 tweets recommended for performance reasons.</div>
+                            </div>
+                            <button type="submit" class="btn btn-twitter">
+                                <i class="fas fa-upload me-2"></i>Upload and Analyze
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Model Management -->
+            <div class="tab-pane fade {{ 'show active' if active_tab == 'model_management' else '' }}" id="model-management" role="tabpanel" aria-labelledby="model-management-tab">
+                <div class="row">
+                    <!-- Upload Model -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="fas fa-upload me-2"></i>Upload Model
+                            </div>
+                            <div class="card-body">
+                                <p>Upload a trained sentiment analysis model file (.pkl)</p>
+                                <form action="{{ url_for('upload_model') }}" method="post" enctype="multipart/form-data">
+                                    <div class="mb-3">
+                                        <label for="model_file" class="form-label">Select model file</label>
+                                        <input type="file" class="form-control" id="model_file" name="model_file" accept=".pkl">
+                                    </div>
+                                    <button type="submit" class="btn btn-twitter" id="upload-model-btn">
+                                        <i class="fas fa-cloud-upload-alt me-2"></i>Upload Model
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Retrieve Model -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="fas fa-download me-2"></i>Retrieve Model
+                            </div>
+                            <div class="card-body">
+                                <p>Download the current model from the API service.</p>
+                                <form action="{{ url_for('retrieve_model') }}" method="post">
+                                    <button type="submit" class="btn btn-twitter" {% if not model_id %}disabled{% endif %}>
+                                        <i class="fas fa-cloud-download-alt me-2"></i>Download Model
+                                    </button>
+                                    {% if not model_id %}
+                                    <div class="form-text text-muted mt-2">
+                                        <i class="fas fa-info-circle"></i> You need to upload or set a model ID first.
+                                    </div>
+                                    {% endif %}
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Real-time Analysis -->
+            <div class="tab-pane fade {{ 'show active' if active_tab == 'real_time_analysis' else '' }}" id="realtime" role="tabpanel" aria-labelledby="realtime-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-bolt me-2"></i>Real-time Tweet Analysis
+                    </div>
+                    <div class="card-body">
+                        <p>Type or paste a tweet and see the sentiment analysis update in real-time.</p>
+                        <div class="mb-3">
+                            <label for="realtime_tweet" class="form-label">Tweet Text</label>
+                            <textarea class="form-control" id="realtime_tweet" rows="4" placeholder="Start typing or paste a tweet here..."></textarea>
+                        </div>
+                        
+                        <div id="realtime-analyzer" class="p-4 border rounded bg-light mb-3">
+                            <h5 class="mb-3">Analysis Results</h5>
+                            <div id="loading" class="text-center mb-3 d-none">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mt-2">Analyzing tweet...</p>
+                            </div>
+                            <div id="no-text-message">
+                                <p class="text-muted"><i class="fas fa-info-circle me-2"></i>Type something to see the analysis</p>
+                            </div>
+                            <div id="result" class="d-none">
+                                <div class="row mb-3">
+                                    <div class="col-md-4">
+                                        <div class="card mb-2">
+                                            <div class="card-body text-center p-3">
+                                                <h6 class="card-title text-muted mb-2">Sentiment</h6>
+                                                <div id="sentiment-display" class="sentiment-badge sentiment-badge-neutral">NEUTRAL</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card mb-2">
+                                            <div class="card-body text-center p-3">
+                                                <h6 class="card-title text-muted mb-2">Polarity</h6>
+                                                <h3 id="polarity-display">0.00</h3>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card mb-2">
+                                            <div class="card-body text-center p-3">
+                                                <h6 class="card-title text-muted mb-2">Subjectivity</h6>
+                                                <h3 id="subjectivity-display">0.00</h3>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <span class="badge bg-secondary" id="model-badge">Using TextBlob</span>
+                                    </div>
+                                    <div>
+                                        <small class="text-muted">Results update as you type</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <footer class="mt-4 mb-5 text-center text-muted">
+            <div class="row">
+                <div class="col-md-6 offset-md-3">
+                    <p>
+                        <i class="fab fa-twitter twitter-logo"></i>
+                        Twitter Sentiment Analysis API
+                    </p>
+                    <p>
+                        <small>
+                            This tool provides sentiment analysis for tweets using TextBlob or custom machine learning models.
+                            Results include polarity (positive/negative) and subjectivity scores.
+                        </small>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.2.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Activate the correct tab based on URL parameter
+        document.addEventListener('DOMContentLoaded', function () {
+            // Get tab from URL query parameter if available
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabParam = urlParams.get('tab');
+            
+            if (tabParam) {
+                // Find the corresponding tab button and activate it
+                const tabButton = document.querySelector(`#${tabParam}-tab`);
+                if (tabButton) {
+                    const tab = new bootstrap.Tab(tabButton);
+                    tab.show();
+                }
+            }
+        });
+        
+        // Real-time tweet analysis
+        const realtimeTweet = document.getElementById('realtime_tweet');
+        const noTextMessage = document.getElementById('no-text-message');
+        const resultDiv = document.getElementById('result');
+        const loadingDiv = document.getElementById('loading');
+        const sentimentDisplay = document.getElementById('sentiment-display');
+        const polarityDisplay = document.getElementById('polarity-display');
+        const subjectivityDisplay = document.getElementById('subjectivity-display');
+        const modelBadge = document.getElementById('model-badge');
+        
+        let typingTimer;
+        const doneTypingInterval = 500; // ms
+        
+        if (realtimeTweet) {
+            realtimeTweet.addEventListener('keyup', function() {
+                clearTimeout(typingTimer);
+                if (realtimeTweet.value) {
+                    noTextMessage.classList.add('d-none');
+                    loadingDiv.classList.remove('d-none');
+                    resultDiv.classList.add('d-none');
+                    
+                    typingTimer = setTimeout(analyzeText, doneTypingInterval);
+                } else {
+                    noTextMessage.classList.remove('d-none');
+                    loadingDiv.classList.add('d-none');
+                    resultDiv.classList.add('d-none');
+                }
+            });
+        }
+        
+        function analyzeText() {
+            const tweetText = realtimeTweet.value.trim();
+            
+            if (!tweetText) {
+                noTextMessage.classList.remove('d-none');
+                loadingDiv.classList.add('d-none');
+                resultDiv.classList.add('d-none');
+                return;
+            }
+            
+            fetch('{{ url_for("api_analyze") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ tweet: tweetText }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                loadingDiv.classList.add('d-none');
+                resultDiv.classList.remove('d-none');
+                
+                // Update sentiment display
+                const sentiment = data.sentiment || 'neutral';
+                sentimentDisplay.textContent = sentiment.toUpperCase();
+                sentimentDisplay.className = 'sentiment-badge';
+                
+                if (sentiment === 'positive') {
+                    sentimentDisplay.classList.add('sentiment-badge-positive');
+                } else if (sentiment === 'negative') {
+                    sentimentDisplay.classList.add('sentiment-badge-negative');
+                } else {
+                    sentimentDisplay.classList.add('sentiment-badge-neutral');
+                }
+                
+                // Update polarity and subjectivity
+                polarityDisplay.textContent = (data.polarity || 0).toFixed(2);
+                subjectivityDisplay.textContent = (data.subjectivity || 0).toFixed(2);
+                
+                // Update model badge
+                if (data.using_model) {
+                    modelBadge.textContent = 'Using Custom Model';
+                    modelBadge.className = 'badge bg-success';
+                } else {
+                    modelBadge.textContent = 'Using TextBlob';
+                    modelBadge.className = 'badge bg-secondary';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                loadingDiv.classList.add('d-none');
+                resultDiv.classList.add('d-none');
+                noTextMessage.classList.remove('d-none');
+                noTextMessage.innerHTML = `<p class="text-danger"><i class="fas fa-exclamation-circle me-2"></i>Error analyzing tweet. Please try again.</p>`;
+            });
+        }
+    </script>
+</body>
+</html>

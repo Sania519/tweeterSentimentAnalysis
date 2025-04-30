@@ -1,0 +1,31 @@
+version: '3'
+
+services:
+  # API Service
+  twitter-api:
+    build: ./api
+    container_name: twitter-sentiment-api
+    environment:
+      - PORT=5001
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
+    ports:
+      - "5001:5001"
+    networks:
+      - sentiment-network
+
+  # Client UI
+  twitter-ui:
+    build: ./client
+    container_name: twitter-sentiment-ui
+    ports:
+      - "80:80"
+    environment:
+      - API_BASE_URL=http://twitter-api:5001
+    depends_on:
+      - twitter-api
+    networks:
+      - sentiment-network
+
+networks:
+  sentiment-network:
+    driver: bridge
